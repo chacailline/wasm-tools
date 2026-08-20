@@ -1,5 +1,7 @@
 //! Generating arbitrary core Wasm modules.
 
+// pattern: Mixed (needs refactoring)
+
 mod code_builder;
 pub(crate) mod encode;
 mod terminate;
@@ -73,7 +75,7 @@ pub struct Module {
     /// All of this module's imports. These don't have their own index space,
     /// but instead introduce entries to each imported entity's associated index
     /// space.
-    imports: Vec<Import>,
+    imports: Vec<Imports>,
 
     /// Whether we should encode an imports section, even if `self.imports` is
     /// empty.
@@ -358,6 +360,20 @@ pub(crate) struct Import {
     pub(crate) name: String,
     /// The type of this entity.
     pub(crate) entity_type: EntityType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) enum Imports {
+    Single(Import),
+    Compact1 {
+        module: String,
+        items: Vec<Import>,
+    },
+    Compact2 {
+        module: String,
+        entity_type: EntityType,
+        names: Vec<String>,
+    },
 }
 
 /// Type of an entity.
@@ -1418,7 +1434,8 @@ impl Module {
             });
             self.num_imports += 1;
         }
-        self.imports.extend(new_imports);
+        self.imports
+            .extend(new_imports.into_iter().map(Imports::Single));
         available_tags.splice(0..0, imported_tags);
         available_funcs.splice(0..0, imported_funcs);
         available_tables.splice(0..0, imported_tables);
@@ -1503,98 +1520,193 @@ impl Module {
     }
 
     fn arbitrary_imports(&mut self, u: &mut Unstructured) -> Result<()> {
-        if self.config.max_type_size < self.type_size {
-            return Ok(());
+        #[derive(Arbitrary)]
+        enum ImportKind {
+            Single,
+            Compact1,
+            Compact2,
         }
 
-        let mut import_strings = HashSet::new();
-        let mut choices: Vec<fn(&mut Unstructured, &mut Module) -> Result<EntityType>> =
-            Vec::with_capacity(5);
-        let min = self.config.min_imports.saturating_sub(self.num_imports);
-        let max = self.config.max_imports.saturating_sub(self.num_imports);
-        arbitrary_loop(u, min, max, |u| {
-            choices.clear();
-            if self.can_add_local_or_import_tag() {
-                choices.push(|u, m| {
-                    let ty = m.arbitrary_tag_type(u)?;
-                    Ok(EntityType::Tag(ty))
-                });
-            }
-            if self.can_add_local_or_import_func() {
-                choices.push(|u, m| {
-                    let idx = *u.choose(&m.func_types)?;
-                    let ty = m.func_type(idx).clone();
-                    Ok(EntityType::Func(idx, ty))
-                });
-            }
-            if self.can_add_local_or_import_global() {
-                choices.push(|u, m| {
-                    let ty = m.arbitrary_global_type(u)?;
-                    Ok(EntityType::Global(ty))
-                });
-            }
-            if self.can_add_local_or_import_memory() {
-                choices.push(|u, m| {
-                    let ty = arbitrary_memtype(u, m.config())?;
-                    Ok(EntityType::Memory(ty))
-                });
-            }
-            if self.can_add_local_or_import_table() {
-                choices.push(|u, m| {
-                    let ty = arbitrary_table_type(u, m.config(), Some(m))?;
-                    Ok(EntityType::Table(ty))
-                });
+        if self.num_imports > self.config.max_imports || self.type_size > self.config.max_type_size
+        {
+            return Err(arbitrary::Error::IncorrectFormat);
+        }
+
+        let mut import_names = HashSet::new();
+        let mut can_generate_entity = true;
+        while can_generate_entity && self.num_imports < self.config.max_imports {
+            let reached_min_imports = self.num_imports >= self.config.min_imports;
+            let should_continue = !reached_min_imports || u.arbitrary().unwrap_or(false);
+            if !should_continue {
+                break;
             }
 
-            if choices.is_empty() {
-                // We are out of choices. If we have not have reached the
-                // minimum yet, then we have no way to satisfy the constraint,
-                // but we follow max-constraints before the min-import
-                // constraint.
-                return Ok(false);
-            }
+            let import_kind = if self.config.compact_imports_enabled {
+                u.arbitrary()?
+            } else {
+                ImportKind::Single
+            };
+            let module = limited_string(1_000, u)?;
 
-            // Generate a type to import, but only actually add the item if the
-            // type size budget allows us to.
-            let f = u.choose(&choices)?;
-            let entity_type = f(u, self)?;
-            let budget = self.config.max_type_size - self.type_size;
-            if entity_type.size() + 1 > budget {
-                return Ok(false);
-            }
-            self.type_size += entity_type.size() + 1;
-
-            // Generate an arbitrary module/name pair to name this import.
-            let mut import_pair = unique_import_strings(1_000, u)?;
-            if self.duplicate_imports_behavior == DuplicateImportsBehavior::Disallowed {
-                while import_strings.contains(&import_pair) {
-                    use std::fmt::Write;
-                    write!(&mut import_pair.1, "{}", import_strings.len()).unwrap();
+            match import_kind {
+                ImportKind::Single => {
+                    let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                        break;
+                    };
+                    let name = self.arbitrary_import_name(&module, &mut import_names, u)?;
+                    self.commit_entity_type(&entity_type);
+                    self.imports.push(Imports::Single(Import {
+                        module,
+                        name,
+                        entity_type,
+                    }));
                 }
-                import_strings.insert(import_pair.clone());
-            }
-            let (module, name) = import_pair;
+                ImportKind::Compact1 => {
+                    let mut items = Vec::new();
+                    while self.num_imports < self.config.max_imports {
+                        if u.arbitrary().unwrap_or(true) {
+                            break;
+                        }
 
-            // Once our name is determined, then we push the typed item into the
-            // appropriate namespace.
-            match &entity_type {
-                EntityType::Tag(ty) => self.tags.push(ty.clone()),
-                EntityType::Func(idx, ty) => self.funcs.push((*idx, ty.clone())),
-                EntityType::Global(ty) => self.globals.push(*ty),
-                EntityType::Table(ty) => self.tables.push(*ty),
-                EntityType::Memory(ty) => self.memories.push(*ty),
-            }
+                        let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                            // No entity kind is available, or generated entity hits config.max_type_size.
+                            // We push the in-progress import entry, and stop generating imports.
+                            can_generate_entity = false;
+                            break;
+                        };
+                        let name = self.arbitrary_import_name(&module, &mut import_names, u)?;
+                        self.commit_entity_type(&entity_type);
+                        items.push(Import {
+                            module: module.clone(),
+                            name,
+                            entity_type,
+                        });
+                    }
+                    self.imports.push(Imports::Compact1 { module, items });
+                }
+                ImportKind::Compact2 => {
+                    let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                        break;
+                    };
 
-            self.num_imports += 1;
-            self.imports.push(Import {
-                module,
-                name,
-                entity_type,
+                    let mut names = Vec::new();
+                    while self.num_imports < self.config.max_imports {
+                        if u.arbitrary().unwrap_or(true) {
+                            break;
+                        }
+
+                        let remaining_type_size = self.config.max_type_size - self.type_size;
+                        let import_type_size = entity_type.size() + 1;
+                        if import_type_size > remaining_type_size
+                            || !self.can_push_entity_type(&entity_type)
+                        {
+                            can_generate_entity = false;
+                            break;
+                        }
+
+                        let name = self.arbitrary_import_name(&module, &mut import_names, u)?;
+                        self.commit_entity_type(&entity_type);
+                        names.push(name);
+                    }
+
+                    self.imports.push(Imports::Compact2 {
+                        module,
+                        entity_type,
+                        names,
+                    });
+                }
+            }
+        }
+
+        if self.num_imports < self.config.min_imports {
+            Err(arbitrary::Error::IncorrectFormat)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn arbitrary_import_entity(&mut self, u: &mut Unstructured) -> Result<Option<EntityType>> {
+        type GenerateEntity = fn(&mut Unstructured, &mut Module) -> Result<EntityType>;
+
+        let mut choices: Vec<GenerateEntity> = Vec::new();
+        if self.can_add_local_or_import_tag() {
+            choices.push(|u, module| Ok(EntityType::Tag(module.arbitrary_tag_type(u)?)));
+        }
+        if self.can_add_local_or_import_func() {
+            choices.push(|u, module| {
+                let idx = *u.choose(&module.func_types)?;
+                Ok(EntityType::Func(idx, Rc::clone(module.func_type(idx))))
             });
-            Ok(true)
-        })?;
+        }
+        if self.can_add_local_or_import_global() {
+            choices.push(|u, module| Ok(EntityType::Global(module.arbitrary_global_type(u)?)));
+        }
+        if self.can_add_local_or_import_memory() {
+            choices
+                .push(|u, module| Ok(EntityType::Memory(arbitrary_memtype(u, module.config())?)));
+        }
+        if self.can_add_local_or_import_table() {
+            choices.push(|u, module| {
+                Ok(EntityType::Table(arbitrary_table_type(
+                    u,
+                    module.config(),
+                    Some(module),
+                )?))
+            });
+        }
 
-        Ok(())
+        if choices.is_empty() {
+            return Ok(None);
+        }
+        let generate = *u.choose(&choices)?;
+        let entity_type = generate(u, self)?;
+        let remaining_type_size = self.config.max_type_size - self.type_size;
+        let import_type_size = entity_type.size() + 1;
+        Ok((import_type_size <= remaining_type_size).then_some(entity_type))
+    }
+
+    fn arbitrary_import_name(
+        &self,
+        module: &str,
+        import_names: &mut HashSet<(String, String)>,
+        u: &mut Unstructured,
+    ) -> Result<String> {
+        let mut import = (module.to_owned(), limited_string(1_000, u)?);
+        match self.duplicate_imports_behavior {
+            DuplicateImportsBehavior::Allowed => Ok(import.1),
+            DuplicateImportsBehavior::Disallowed => {
+                while import_names.contains(&import) {
+                    use std::fmt::Write;
+                    write!(&mut import.1, "{}", import_names.len()).unwrap();
+                }
+                import_names.insert(import.clone());
+                Ok(import.1)
+            }
+        }
+    }
+
+    /// Does the given `EntityType` have remaining capacity?
+    fn can_push_entity_type(&self, entity_type: &EntityType) -> bool {
+        match entity_type {
+            EntityType::Tag(_) => self.tags.len() < self.config.max_tags,
+            EntityType::Func(_, _) => self.funcs.len() < self.config.max_funcs,
+            EntityType::Global(_) => self.globals.len() < self.config.max_globals,
+            EntityType::Table(_) => self.tables.len() < self.config.max_tables,
+            EntityType::Memory(_) => self.memories.len() < self.config.max_memories,
+        }
+    }
+
+    /// Push the given entity type, incrementing `self.type_size` and `self.tags`
+    fn commit_entity_type(&mut self, entity_type: &EntityType) {
+        self.type_size += entity_type.size() + 1;
+        match entity_type {
+            EntityType::Tag(ty) => self.tags.push(ty.clone()),
+            EntityType::Func(idx, ty) => self.funcs.push((*idx, Rc::clone(ty))),
+            EntityType::Global(ty) => self.globals.push(*ty),
+            EntityType::Table(ty) => self.tables.push(*ty),
+            EntityType::Memory(ty) => self.memories.push(*ty),
+        }
+        self.num_imports += 1;
     }
 
     /// Generate some arbitrary imports from the list of available imports.
@@ -1784,7 +1896,8 @@ impl Module {
         for ty in available_types {
             self.add_type(ty);
         }
-        self.imports.extend(new_imports);
+        self.imports
+            .extend(new_imports.into_iter().map(Imports::Single));
 
         Ok(())
     }
@@ -3565,12 +3678,6 @@ fn arbitrary_offset(
     } else {
         gradually_grow(u, 0, limit_min - size, limit_max)
     }
-}
-
-fn unique_import_strings(max_size: usize, u: &mut Unstructured) -> Result<(String, String)> {
-    let module = limited_string(max_size, u)?;
-    let field = limited_string(max_size, u)?;
-    Ok((module, field))
 }
 
 fn arbitrary_vec_u8(u: &mut Unstructured) -> Result<Vec<u8>> {
