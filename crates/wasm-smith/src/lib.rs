@@ -62,7 +62,7 @@ mod component;
 mod config;
 mod core;
 
-pub use crate::core::{InstructionKind, InstructionKinds, Module};
+pub use crate::core::{ImportStats, InstructionKind, InstructionKinds, Module};
 use arbitrary::{Result, Unstructured};
 #[cfg(feature = "component-model")]
 pub use component::Component;
