@@ -201,6 +201,37 @@ fn compact_imports_disabled() {
 }
 
 #[test]
+#[cfg(feature = "wasmparser")]
+fn empty_compact_imports_disabled() {
+    let mut rng = SmallRng::seed_from_u64(42);
+    let mut buf = vec![0; 2048];
+    let mut compact_imports_seen = false;
+    let mut config = Config::default();
+    config.compact_imports_enabled = true;
+    config.allow_empty_compact_imports = false;
+    config.max_imports = 4;
+    config.max_funcs = 100;
+    config.max_globals = 100;
+    config.max_tables = 100;
+    config.max_memories = 100;
+    config.max_tags = 100;
+    let features = config.features();
+
+    for _ in 0..1024 {
+        rng.fill_bytes(&mut buf);
+        let mut u = Unstructured::new(&buf);
+        if let Ok(module) = Module::new(config.clone(), &mut u) {
+            let groups = inspect_imports(&module.to_bytes(), features, config.max_imports);
+            assert_eq!(groups.empty_compact1_entries, 0);
+            assert_eq!(groups.empty_compact2_entries, 0);
+            compact_imports_seen |= groups.has_compact1 || groups.has_compact2;
+        }
+    }
+
+    assert!(compact_imports_seen);
+}
+
+#[test]
 fn compact_imports_enabled() {
     let mut rng = SmallRng::seed_from_u64(42);
     let mut buf = vec![0; 2048];

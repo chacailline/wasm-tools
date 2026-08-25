@@ -402,6 +402,13 @@ pub(crate) enum Imports {
     },
 }
 
+#[derive(Arbitrary)]
+enum ImportGroupKind {
+    Single,
+    Compact1,
+    Compact2,
+}
+
 /// Type of an entity.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) enum EntityType {
@@ -1622,22 +1629,11 @@ impl Module {
                 break;
             }
 
-            #[derive(Arbitrary)]
-            enum ImportKind {
-                Single,
-                Compact1,
-                Compact2,
-            }
-
-            let import_kind = if self.config.compact_imports_enabled {
-                u.arbitrary()?
-            } else {
-                ImportKind::Single
-            };
+            let import_kind = self.arbitrary_import_group_kind(u)?;
             let module = limited_string(1_000, u)?;
 
             match import_kind {
-                ImportKind::Single => {
+                ImportGroupKind::Single => {
                     let Some(entity_type) = self.arbitrary_import_entity(u)? else {
                         break;
                     };
@@ -1649,7 +1645,7 @@ impl Module {
                         entity_type,
                     }));
                 }
-                ImportKind::Compact1 => {
+                ImportGroupKind::Compact1 => {
                     let mut items = Vec::new();
                     while self.num_imports < self.config.max_imports {
                         if u.arbitrary().unwrap_or(true) {
@@ -1670,9 +1666,11 @@ impl Module {
                             entity_type,
                         });
                     }
-                    self.imports.push(Imports::Compact1 { module, items });
+                    if self.config.allow_empty_compact_imports || !items.is_empty() {
+                        self.imports.push(Imports::Compact1 { module, items });
+                    }
                 }
-                ImportKind::Compact2 => {
+                ImportGroupKind::Compact2 => {
                     let Some(entity_type) = self.arbitrary_import_entity(u)? else {
                         break;
                     };
@@ -1697,11 +1695,13 @@ impl Module {
                         names.push(name);
                     }
 
-                    self.imports.push(Imports::Compact2 {
-                        module,
-                        entity_type,
-                        names,
-                    });
+                    if self.config.allow_empty_compact_imports || !names.is_empty() {
+                        self.imports.push(Imports::Compact2 {
+                            module,
+                            entity_type,
+                            names,
+                        });
+                    }
                 }
             }
         }
@@ -1711,6 +1711,54 @@ impl Module {
         } else {
             Ok(())
         }
+    }
+
+    fn arbitrary_import_group_kind(&self, u: &mut Unstructured) -> Result<ImportGroupKind> {
+        if self.config.compact_imports_enabled {
+            u.arbitrary()
+        } else {
+            Ok(ImportGroupKind::Single)
+        }
+    }
+
+    fn push_arbitrary_import_groups(
+        &mut self,
+        imports: Vec<Import>,
+        u: &mut Unstructured,
+    ) -> Result<()> {
+        let mut imports = imports.into_iter().peekable();
+        while let Some(import) = imports.next() {
+            match self.arbitrary_import_group_kind(u)? {
+                ImportGroupKind::Single => self.imports.push(Imports::Single(import)),
+                ImportGroupKind::Compact1 => {
+                    let module = import.module.clone();
+                    let mut items = vec![import];
+                    while imports.peek().is_some_and(|import| import.module == module)
+                        && !u.arbitrary().unwrap_or(true)
+                    {
+                        items.push(imports.next().unwrap());
+                    }
+                    self.imports.push(Imports::Compact1 { module, items });
+                }
+                ImportGroupKind::Compact2 => {
+                    let module = import.module.clone();
+                    let entity_type = import.entity_type.clone();
+                    let mut names = vec![import.name];
+                    while imports.peek().is_some_and(|import| {
+                        import.module == module && import.entity_type == entity_type
+                    }) && !u.arbitrary().unwrap_or(true)
+                    {
+                        names.push(imports.next().unwrap().name);
+                    }
+                    self.imports.push(Imports::Compact2 {
+                        module,
+                        entity_type,
+                        names,
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 
     fn arbitrary_import_entity(&mut self, u: &mut Unstructured) -> Result<Option<EntityType>> {
@@ -1984,8 +2032,7 @@ impl Module {
         for ty in available_types {
             self.add_type(ty);
         }
-        self.imports
-            .extend(new_imports.into_iter().map(Imports::Single));
+        self.push_arbitrary_import_groups(new_imports, u)?;
 
         Ok(())
     }

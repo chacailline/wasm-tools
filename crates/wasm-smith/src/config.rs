@@ -441,6 +441,16 @@ define_config! {
         /// Defaults to `true`.
         pub compact_imports_enabled: bool = true,
 
+        /// Determines whether arbitrary import generation may emit empty compact
+        /// import groups.
+        ///
+        /// Don't enable if you intend to use generated modules in `.wat` or `.wast`
+        ///
+        /// Has no effect if `compact_imports_enabled` is `false`.
+        ///
+        /// Defaults to `false`.
+        pub allow_empty_compact_imports: bool = false,
+
         /// Determines whether the custom descriptors proposal is enabled when
         /// generating a Wasm module.
         ///
@@ -856,6 +866,7 @@ impl<'a> Arbitrary<'a> for Config {
             tail_call_enabled: u.arbitrary()?,
             gc_enabled: u.arbitrary()?,
             compact_imports_enabled: u.arbitrary()?,
+            allow_empty_compact_imports: u.arbitrary()?,
             memory64_enabled: u.arbitrary()?,
             allowed_instructions: {
                 use flagset::Flags;
