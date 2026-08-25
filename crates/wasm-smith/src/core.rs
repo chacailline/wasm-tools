@@ -527,6 +527,9 @@ impl Module {
         // must have those populated for all function/etc. imports, no matter what.
         //
         // This can affect the available capacity for types and such.
+        //
+        // Conversely, `arbitrary_imports` must follow `arbitrary_types`,
+        // since it uses the generated function and tag types.
         if self.arbitrary_imports_from_available(u)? {
             generate_arbitrary_imports = false;
         }
@@ -1327,7 +1330,7 @@ impl Module {
 
         let mut required_types: Vec<SubType> = Vec::new();
         let mut required_recgrps: Vec<usize> = Vec::new();
-        let mut required_imports: Vec<wasmparser::Import> = Vec::new();
+        let mut required_imports: Vec<wasmparser::Imports> = Vec::new();
         let mut required_exports: Vec<wasmparser::Export> = Vec::new();
         let mut validator = wasmparser::Validator::new();
         validator
@@ -1349,9 +1352,8 @@ impl Module {
                     }
                 }
                 wasmparser::Payload::ImportSection(import_reader) => {
-                    for im in import_reader.into_imports() {
-                        let im = im.expect("could not read import");
-                        required_imports.push(im);
+                    for imports in import_reader {
+                        required_imports.push(imports.expect("could not read imports"));
                     }
                 }
                 wasmparser::Payload::ExportSection(export_reader) => {
@@ -1414,86 +1416,114 @@ impl Module {
         let mut imported_tables: Vec<wasmparser::TableType> = Vec::new();
         let mut imported_globals: Vec<wasmparser::GlobalType> = Vec::new();
         let mut imported_memories: Vec<wasmparser::MemoryType> = Vec::new();
-        let mut new_imports = Vec::with_capacity(required_imports.len());
-        for import in required_imports {
-            let entity_type = match &import.ty {
+        fn entity_type(ty: wasmparser::TypeRef, required_types: &[SubType]) -> EntityType {
+            match ty {
                 wasmparser::TypeRef::Func(sig_idx) => {
-                    imported_funcs.push(*sig_idx);
-                    match required_types.get(*sig_idx as usize) {
-                        None => panic!("signature index refers to a type out of bounds"),
-                        Some(ty) => match &ty.composite_type.inner {
-                            CompositeInnerType::Func(func_type) => {
-                                let entity = EntityType::Func(*sig_idx, Rc::clone(func_type));
-                                self.funcs.push((*sig_idx, Rc::clone(func_type)));
-                                entity
-                            }
-                            _ => panic!("a function type is required for function import"),
-                        },
-                    }
+                    let ty = required_types
+                        .get(sig_idx as usize)
+                        .expect("signature index refers to a type out of bounds");
+                    EntityType::Func(sig_idx, Rc::clone(ty.composite_type.unwrap_func()))
                 }
-
                 wasmparser::TypeRef::FuncExact(_) => panic!("Unexpected func_exact import"),
-
-                wasmparser::TypeRef::Tag(wasmparser::TagType {
-                    kind,
-                    func_type_idx,
-                }) => {
-                    imported_tags.push(wasmparser::TagType {
-                        kind: *kind,
-                        func_type_idx: *func_type_idx,
-                    });
-                    match required_types.get(*func_type_idx as usize) {
-                        None => {
-                            panic!("function type index for tag refers to a type out of bounds")
-                        }
-                        Some(ty) => match &ty.composite_type.inner {
-                            CompositeInnerType::Func(func_type) => {
-                                let tag_type = TagType {
-                                    func_type_idx: *func_type_idx,
-                                    func_type: Rc::clone(func_type),
-                                };
-                                let entity = EntityType::Tag(tag_type.clone());
-                                self.tags.push(tag_type);
-                                entity
-                            }
-                            _ => panic!("a function type is required for tag import"),
-                        },
-                    }
+                wasmparser::TypeRef::Tag(ty) => {
+                    let func_type = required_types
+                        .get(ty.func_type_idx as usize)
+                        .expect("function type index for tag refers to a type out of bounds")
+                        .composite_type
+                        .unwrap_func();
+                    EntityType::Tag(TagType {
+                        func_type_idx: ty.func_type_idx,
+                        func_type: Rc::clone(func_type),
+                    })
                 }
-
-                wasmparser::TypeRef::Table(table_ty) => {
-                    imported_tables.push(*table_ty);
-                    let table_ty = TableType::try_from(*table_ty).unwrap();
-                    let entity = EntityType::Table(table_ty);
-                    self.tables.push(table_ty);
-                    entity
+                wasmparser::TypeRef::Table(ty) => EntityType::Table(ty.try_into().unwrap()),
+                wasmparser::TypeRef::Memory(ty) => EntityType::Memory(ty.into()),
+                wasmparser::TypeRef::Global(ty) => EntityType::Global(ty.try_into().unwrap()),
+            }
+        }
+        let mut translate_import = |import: wasmparser::Import| {
+            let parser_ty = import.ty;
+            let ty = entity_type(parser_ty, &required_types);
+            match (parser_ty, &ty) {
+                (wasmparser::TypeRef::Func(sig_idx), EntityType::Func(_, func_type)) => {
+                    imported_funcs.push(sig_idx);
+                    self.funcs.push((sig_idx, Rc::clone(func_type)));
                 }
-
-                wasmparser::TypeRef::Memory(memory_ty) => {
-                    imported_memories.push(*memory_ty);
-                    let memory_ty = MemoryType::from(*memory_ty);
-                    let entity = EntityType::Memory(memory_ty);
-                    self.memories.push(memory_ty);
-                    entity
+                (wasmparser::TypeRef::Tag(parser_ty), EntityType::Tag(tag_type)) => {
+                    imported_tags.push(parser_ty);
+                    self.tags.push(tag_type.clone());
                 }
-
-                wasmparser::TypeRef::Global(global_ty) => {
-                    imported_globals.push(*global_ty);
-                    let global_ty = GlobalType::try_from(*global_ty).unwrap();
-                    let entity = EntityType::Global(global_ty);
-                    self.globals.push(global_ty);
-                    entity
+                (wasmparser::TypeRef::Table(parser_ty), EntityType::Table(ty)) => {
+                    imported_tables.push(parser_ty);
+                    self.tables.push(*ty);
                 }
-            };
-            new_imports.push(Import {
+                (wasmparser::TypeRef::Memory(parser_ty), EntityType::Memory(ty)) => {
+                    imported_memories.push(parser_ty);
+                    self.memories.push(*ty);
+                }
+                (wasmparser::TypeRef::Global(parser_ty), EntityType::Global(ty)) => {
+                    imported_globals.push(parser_ty);
+                    self.globals.push(*ty);
+                }
+                _ => unreachable!(),
+            }
+            self.num_imports += 1;
+            Import {
                 module: import.module.to_string(),
                 name: import.name.to_string(),
-                entity_type,
-            });
-            self.num_imports += 1;
+                entity_type: ty,
+            }
+        };
+
+        for imports in required_imports {
+            match imports {
+                wasmparser::Imports::Single(_, import) => {
+                    self.imports.push(Imports::Single(translate_import(import)));
+                }
+                wasmparser::Imports::Compact1 { module, items } => {
+                    let items = items
+                        .into_iter()
+                        .map(|item| {
+                            let item = item.expect("could not read compact import");
+                            translate_import(wasmparser::Import {
+                                module,
+                                name: item.name,
+                                ty: item.ty,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if self.config.compact_imports_enabled {
+                        self.imports.push(Imports::Compact1 {
+                            module: module.to_string(),
+                            items,
+                        });
+                    } else {
+                        self.imports.extend(items.into_iter().map(Imports::Single));
+                    }
+                }
+                wasmparser::Imports::Compact2 { module, ty, names } => {
+                    let items = names
+                        .into_iter()
+                        .map(|name| {
+                            translate_import(wasmparser::Import {
+                                module,
+                                name: name.expect("could not read compact import name"),
+                                ty,
+                            })
+                        })
+                        .collect::<Vec<_>>();
+                    if self.config.compact_imports_enabled {
+                        self.imports.push(Imports::Compact2 {
+                            module: module.to_string(),
+                            entity_type: entity_type(ty, &required_types),
+                            names: items.into_iter().map(|item| item.name).collect(),
+                        });
+                    } else {
+                        self.imports.extend(items.into_iter().map(Imports::Single));
+                    }
+                }
+            }
         }
-        self.imports
-            .extend(new_imports.into_iter().map(Imports::Single));
         available_tags.splice(0..0, imported_tags);
         available_funcs.splice(0..0, imported_funcs);
         available_tables.splice(0..0, imported_tables);
@@ -1578,13 +1608,6 @@ impl Module {
     }
 
     fn arbitrary_imports(&mut self, u: &mut Unstructured) -> Result<()> {
-        #[derive(Arbitrary)]
-        enum ImportKind {
-            Single,
-            Compact1,
-            Compact2,
-        }
-
         if self.num_imports > self.config.max_imports || self.type_size > self.config.max_type_size
         {
             return Err(arbitrary::Error::IncorrectFormat);
@@ -1597,6 +1620,13 @@ impl Module {
             let should_continue = !reached_min_imports || u.arbitrary().unwrap_or(false);
             if !should_continue {
                 break;
+            }
+
+            #[derive(Arbitrary)]
+            enum ImportKind {
+                Single,
+                Compact1,
+                Compact2,
             }
 
             let import_kind = if self.config.compact_imports_enabled {
