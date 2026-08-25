@@ -192,6 +192,13 @@ impl fmt::Debug for Module {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DuplicateImportsBehavior {
     Allowed,
+    #[cfg_attr(
+        not(feature = "component-model"),
+        expect(
+            dead_code,
+            reason = "Core WebAssembly permits duplicate import module/name pairs"
+        )
+    )]
     Disallowed,
 }
 
