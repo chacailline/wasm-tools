@@ -1719,6 +1719,7 @@ impl Module {
         }
     }
 
+    #[cfg(feature = "wasmparser")]
     fn push_arbitrary_import_groups(
         &mut self,
         imports: Vec<Import>,
