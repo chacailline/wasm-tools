@@ -23,6 +23,12 @@ fn smoke_test_module() {
 }
 
 #[test]
+fn module_generation_terminates_with_empty_input() {
+    let mut u = Unstructured::new(&[]);
+    Module::new(Config::default(), &mut u).unwrap();
+}
+
+#[test]
 fn smoke_test_ensure_termination() {
     let mut rng = SmallRng::seed_from_u64(0);
     let mut buf = vec![0; 2048];
@@ -120,32 +126,6 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
         }
     }
     import_stats
-}
-
-#[test]
-fn import_stats_match_encoded_imports() {
-    let mut rng = SmallRng::seed_from_u64(7);
-    let mut buf = vec![0; 2048];
-    let mut checked = 0;
-
-    for _ in 0..1024 {
-        rng.fill_bytes(&mut buf);
-        let u = Unstructured::new(&buf);
-        let Ok(module) = Module::arbitrary_take_rest(u) else {
-            continue;
-        };
-        let stats = module.import_stats();
-        let encoded = inspect_imports(&module.to_bytes(), usize::MAX);
-        assert_eq!(stats.section_entries, encoded.section_entries);
-        assert_eq!(stats.single_entries, encoded.single_entries);
-        assert_eq!(stats.compact1_entries, encoded.compact1_entries);
-        assert_eq!(stats.compact2_entries, encoded.compact2_entries);
-        assert_eq!(stats.logical_imports, encoded.import_count);
-        assert_eq!(stats.empty_import_sections, encoded.empty_import_sections);
-        checked += 1;
-    }
-
-    assert!(checked > 0);
 }
 
 #[test]

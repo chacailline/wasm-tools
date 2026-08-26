@@ -615,7 +615,8 @@ impl Module {
             self.arbitrary_rec_group(u, AllowEmptyRecGroup::No)?;
         }
         while self.types.len() < self.config.max_types {
-            if u.arbitrary().unwrap_or(true) {
+            let keep_going = u.arbitrary().unwrap_or(false);
+            if !keep_going {
                 break;
             }
             self.arbitrary_rec_group(u, AllowEmptyRecGroup::Yes)?;
@@ -1574,8 +1575,11 @@ impl Module {
         let mut entity_generation_failed = false;
         while !entity_generation_failed && self.num_imports < self.config.max_imports {
             let reached_min_imports = self.num_imports >= self.config.min_imports;
-            if reached_min_imports && u.arbitrary().unwrap_or(true) {
-                break;
+            if reached_min_imports {
+                let keep_going = u.arbitrary().unwrap_or(false);
+                if !keep_going {
+                    break;
+                }
             }
 
             let import_kind = self.arbitrary_import_group_kind(u)?;
@@ -1596,7 +1600,8 @@ impl Module {
                 ImportsKind::Compact1 => {
                     let mut items = Vec::new();
                     while self.num_imports < self.config.max_imports {
-                        if u.arbitrary().unwrap_or(true) {
+                        let keep_going = u.arbitrary().unwrap_or(false);
+                        if !keep_going {
                             break;
                         }
 
@@ -1625,7 +1630,8 @@ impl Module {
 
                     let mut names = Vec::new();
                     while self.num_imports < self.config.max_imports {
-                        if u.arbitrary().unwrap_or(true) {
+                        let keep_going = u.arbitrary().unwrap_or(false);
+                        if !keep_going {
                             break;
                         }
 
