@@ -1672,47 +1672,6 @@ impl Module {
         }
     }
 
-    #[cfg(feature = "wasmparser")]
-    fn push_arbitrary_import_groups(
-        &mut self,
-        imports: Vec<Import>,
-        u: &mut Unstructured,
-    ) -> Result<()> {
-        let mut imports = imports.into_iter().peekable();
-        while let Some(import) = imports.next() {
-            match self.arbitrary_import_group_kind(u)? {
-                ImportsKind::Single => self.imports.push(Imports::Single(import)),
-                ImportsKind::Compact1 => {
-                    let module = import.module.clone();
-                    let mut items = vec![import];
-                    while imports.peek().is_some_and(|import| import.module == module)
-                        && !u.arbitrary().unwrap_or(true)
-                    {
-                        items.push(imports.next().unwrap());
-                    }
-                    self.imports.push(Imports::Compact1 { module, items });
-                }
-                ImportsKind::Compact2 => {
-                    let module = import.module.clone();
-                    let entity_type = import.entity_type.clone();
-                    let mut names = vec![import.name];
-                    while imports.peek().is_some_and(|import| {
-                        import.module == module && import.entity_type == entity_type
-                    }) && !u.arbitrary().unwrap_or(true)
-                    {
-                        names.push(imports.next().unwrap().name);
-                    }
-                    self.imports.push(Imports::Compact2 {
-                        module,
-                        entity_type,
-                        names,
-                    });
-                }
-            }
-        }
-        Ok(())
-    }
-
     fn arbitrary_import_entity(&mut self, u: &mut Unstructured) -> Result<Option<EntityType>> {
         type GenerateEntity = fn(&mut Unstructured, &mut Module) -> Result<EntityType>;
 
@@ -1986,6 +1945,47 @@ impl Module {
         }
         self.push_arbitrary_import_groups(new_imports, u)?;
 
+        Ok(())
+    }
+
+    #[cfg(feature = "wasmparser")]
+    fn push_arbitrary_import_groups(
+        &mut self,
+        imports: Vec<Import>,
+        u: &mut Unstructured,
+    ) -> Result<()> {
+        let mut imports = imports.into_iter().peekable();
+        while let Some(import) = imports.next() {
+            match self.arbitrary_import_group_kind(u)? {
+                ImportsKind::Single => self.imports.push(Imports::Single(import)),
+                ImportsKind::Compact1 => {
+                    let module = import.module.clone();
+                    let mut items = vec![import];
+                    while imports.peek().is_some_and(|import| import.module == module)
+                        && !u.arbitrary().unwrap_or(true)
+                    {
+                        items.push(imports.next().unwrap());
+                    }
+                    self.imports.push(Imports::Compact1 { module, items });
+                }
+                ImportsKind::Compact2 => {
+                    let module = import.module.clone();
+                    let entity_type = import.entity_type.clone();
+                    let mut names = vec![import.name];
+                    while imports.peek().is_some_and(|import| {
+                        import.module == module && import.entity_type == entity_type
+                    }) && !u.arbitrary().unwrap_or(true)
+                    {
+                        names.push(imports.next().unwrap().name);
+                    }
+                    self.imports.push(Imports::Compact2 {
+                        module,
+                        entity_type,
+                        names,
+                    });
+                }
+            }
+        }
         Ok(())
     }
 
