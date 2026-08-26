@@ -105,7 +105,9 @@ macro_rules! define_config {
             ///
             /// When `compact_imports_enabled` is enabled, the import section preserves
             /// the source entries' order and their `Single`, `Compact1`, and `Compact2`
-            /// grouping. When it is disabled, compact groups are emitted as ordinary imports.
+            /// grouping. Empty compact groups are omitted.
+            /// When `compact_imports_enabled` is disabled,
+            /// compact groups are emitted as ordinary imports.
             ///
             /// Defaults to `None` which means arbitrary imports and exports will be
             /// generated.
@@ -225,7 +227,9 @@ macro_rules! define_config {
             ///
             /// When `compact_imports_enabled` is enabled, the import section preserves
             /// the source entries' order and their `Single`, `Compact1`, and `Compact2`
-            /// grouping. When it is disabled, compact groups are emitted as ordinary imports.
+            /// grouping. Empty compact groups are omitted.
+            /// When `compact_imports_enabled` is disabled,
+            /// compact groups are emitted as ordinary imports.
             ///
             /// Defaults to `None` which means arbitrary imports and exports will be
             /// generated.

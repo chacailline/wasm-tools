@@ -258,13 +258,13 @@ fn smoke_can_smith_valid_webassembly_one_point_oh() {
         cfg.extended_const_enabled = false;
         cfg.tail_call_enabled = false;
         cfg.threads_enabled = false;
+        cfg.compact_imports_enabled = false;
         cfg.max_memories = 1;
         cfg.max_tables = 1;
         if let Ok(module) = Module::new(cfg, &mut u) {
             let wasm_bytes = module.to_bytes();
             // This table should set to `true` only features specified in wasm-core-1 spec.
-            let mut validator =
-                Validator::new_with_features(WasmFeatures::WASM1 | WasmFeatures::COMPACT_IMPORTS);
+            let mut validator = Validator::new_with_features(WasmFeatures::WASM1);
             validate(&mut validator, &wasm_bytes);
         }
     }

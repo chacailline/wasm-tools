@@ -1750,7 +1750,7 @@ impl Module {
         }
     }
 
-    /// Push the given entity type, incrementing `self.type_size` and `self.tags`
+    /// Push the given entity type, incrementing `self.type_size` and `self.num_imports`
     fn commit_entity_type(&mut self, entity_type: &EntityType) {
         self.type_size += entity_type.size() + 1;
         match entity_type {
@@ -1955,6 +1955,15 @@ impl Module {
         Ok(())
     }
 
+    /// Adds given imports to this module.
+    ///
+    /// If [`crate::Config::compact_imports_enabled`] is `true`,
+    /// arbitrarily chooses a single import or a compact group,
+    /// and arbitrarily collates consecutive imports with matching module
+    /// and/or type into the same import group.
+    ///
+    /// If [`crate::Config::compact_imports_enabled`] is `false`,
+    /// produces only single imports.
     #[cfg(feature = "wasmparser")]
     fn push_arbitrary_import_groups(
         &mut self,
