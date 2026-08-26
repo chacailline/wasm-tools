@@ -47,10 +47,6 @@ pub struct ImportStats {
     pub logical_imports: usize,
     /// The number of emitted import sections with no entries.
     pub empty_import_sections: usize,
-    /// The number of empty Compact1 entries.
-    pub empty_compact1_entries: usize,
-    /// The number of empty Compact2 entries.
-    pub empty_compact2_entries: usize,
 }
 
 /// A pseudo-random WebAssembly module.
@@ -507,12 +503,10 @@ impl Module {
                 Imports::Compact1 { items, .. } => {
                     stats.compact1_entries += 1;
                     stats.logical_imports += items.len();
-                    stats.empty_compact1_entries += usize::from(items.is_empty());
                 }
                 Imports::Compact2 { names, .. } => {
                     stats.compact2_entries += 1;
                     stats.logical_imports += names.len();
-                    stats.empty_compact2_entries += usize::from(names.is_empty());
                 }
             }
         }
@@ -1500,10 +1494,12 @@ impl Module {
                         })
                         .collect::<Vec<_>>();
                     if self.config.compact_imports_enabled {
-                        self.imports.push(Imports::Compact1 {
-                            module: module.to_string(),
-                            items,
-                        });
+                        if !items.is_empty() {
+                            self.imports.push(Imports::Compact1 {
+                                module: module.to_string(),
+                                items,
+                            });
+                        }
                     } else {
                         self.imports.extend(items.into_iter().map(Imports::Single));
                     }
@@ -1520,11 +1516,13 @@ impl Module {
                         })
                         .collect::<Vec<_>>();
                     if self.config.compact_imports_enabled {
-                        self.imports.push(Imports::Compact2 {
-                            module: module.to_string(),
-                            entity_type: entity_type(ty, &required_types),
-                            names: items.into_iter().map(|item| item.name).collect(),
-                        });
+                        if !items.is_empty() {
+                            self.imports.push(Imports::Compact2 {
+                                module: module.to_string(),
+                                entity_type: entity_type(ty, &required_types),
+                                names: items.into_iter().map(|item| item.name).collect(),
+                            });
+                        }
                     } else {
                         self.imports.extend(items.into_iter().map(Imports::Single));
                     }
@@ -1666,7 +1664,7 @@ impl Module {
                             entity_type,
                         });
                     }
-                    if self.config.allow_empty_compact_imports || !items.is_empty() {
+                    if !items.is_empty() {
                         self.imports.push(Imports::Compact1 { module, items });
                     }
                 }
@@ -1695,7 +1693,7 @@ impl Module {
                         names.push(name);
                     }
 
-                    if self.config.allow_empty_compact_imports || !names.is_empty() {
+                    if !names.is_empty() {
                         self.imports.push(Imports::Compact2 {
                             module,
                             entity_type,

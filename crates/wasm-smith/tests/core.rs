@@ -65,8 +65,6 @@ struct ImportStats {
     compact1_entries: usize,
     compact2_entries: usize,
     empty_import_sections: usize,
-    empty_compact1_entries: usize,
-    empty_compact2_entries: usize,
     has_single: bool,
     has_compact1: bool,
     has_compact2: bool,
@@ -106,7 +104,6 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
                     let count = items.count() as usize;
                     import_stats.has_compact1 = true;
                     import_stats.compact1_entries += 1;
-                    import_stats.empty_compact1_entries += usize::from(count == 0);
                     import_stats.has_multi_compact1 |= count >= 2;
                     (count, ImportKind::Compact1)
                 }
@@ -114,7 +111,6 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
                     let count = names.count() as usize;
                     import_stats.has_compact2 = true;
                     import_stats.compact2_entries += 1;
-                    import_stats.empty_compact2_entries += usize::from(count == 0);
                     import_stats.has_multi_compact2 |= count >= 2;
                     (count, ImportKind::Compact2)
                 }
@@ -143,7 +139,6 @@ fn import_stats_match_encoded_imports() {
     let mut rng = SmallRng::seed_from_u64(7);
     let mut buf = vec![0; 2048];
     let mut checked = 0;
-    let mut saw_empty_group = false;
 
     for _ in 0..1024 {
         rng.fill_bytes(&mut buf);
@@ -159,14 +154,10 @@ fn import_stats_match_encoded_imports() {
         assert_eq!(stats.compact2_entries, encoded.compact2_entries);
         assert_eq!(stats.logical_imports, encoded.import_count);
         assert_eq!(stats.empty_import_sections, encoded.empty_import_sections);
-        assert_eq!(stats.empty_compact1_entries, encoded.empty_compact1_entries);
-        assert_eq!(stats.empty_compact2_entries, encoded.empty_compact2_entries);
-        saw_empty_group |= stats.empty_compact1_entries + stats.empty_compact2_entries > 0;
         checked += 1;
     }
 
     assert!(checked > 0);
-    assert!(saw_empty_group);
 }
 
 #[test]
@@ -198,37 +189,6 @@ fn compact_imports_disabled() {
     }
 
     assert!(imports_seen);
-}
-
-#[test]
-#[cfg(feature = "wasmparser")]
-fn empty_compact_imports_disabled() {
-    let mut rng = SmallRng::seed_from_u64(42);
-    let mut buf = vec![0; 2048];
-    let mut compact_imports_seen = false;
-    let mut config = Config::default();
-    config.compact_imports_enabled = true;
-    config.allow_empty_compact_imports = false;
-    config.max_imports = 4;
-    config.max_funcs = 100;
-    config.max_globals = 100;
-    config.max_tables = 100;
-    config.max_memories = 100;
-    config.max_tags = 100;
-    let features = config.features();
-
-    for _ in 0..1024 {
-        rng.fill_bytes(&mut buf);
-        let mut u = Unstructured::new(&buf);
-        if let Ok(module) = Module::new(config.clone(), &mut u) {
-            let groups = inspect_imports(&module.to_bytes(), features, config.max_imports);
-            assert_eq!(groups.empty_compact1_entries, 0);
-            assert_eq!(groups.empty_compact2_entries, 0);
-            compact_imports_seen |= groups.has_compact1 || groups.has_compact2;
-        }
-    }
-
-    assert!(compact_imports_seen);
 }
 
 #[test]

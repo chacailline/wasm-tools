@@ -86,10 +86,7 @@ fn module_shape_preserves_compact_import_groups_when_enabled() {
     let module = Module::new(config, &mut u).unwrap();
     let generated = module.to_bytes();
 
-    assert_eq!(
-        import_group_sizes(&generated),
-        vec![(1, 1), (1, 0), (2, 2), (2, 0)]
-    );
+    assert_eq!(import_group_sizes(&generated), vec![(1, 1), (2, 2)]);
     assert_eq!(
         get_imports_exports(WasmFeatures::default(), &module_shape).0,
         get_imports_exports(WasmFeatures::default(), &generated).0,
