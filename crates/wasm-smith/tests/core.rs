@@ -59,12 +59,7 @@ fn smoke_test_swarm_config() {
 
 #[derive(Default)]
 struct ImportStats {
-    section_entries: usize,
     import_count: usize,
-    single_entries: usize,
-    compact1_entries: usize,
-    compact2_entries: usize,
-    empty_import_sections: usize,
     has_single: bool,
     has_compact1: bool,
     has_compact2: bool,
@@ -90,27 +85,22 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
         let wasmparser::Payload::ImportSection(imports) = payload else {
             continue;
         };
-        let mut section_entries = 0;
         for imports in imports.into_iter_with_offsets() {
             let (_, imports) = imports.unwrap();
-            section_entries += 1;
             let (count, kind) = match imports {
                 wasmparser::Imports::Single(_, _) => {
                     import_stats.has_single = true;
-                    import_stats.single_entries += 1;
                     (1, ImportKind::Single)
                 }
                 wasmparser::Imports::Compact1 { items, .. } => {
                     let count = items.count() as usize;
                     import_stats.has_compact1 = true;
-                    import_stats.compact1_entries += 1;
                     import_stats.has_multi_compact1 |= count >= 2;
                     (count, ImportKind::Compact1)
                 }
                 wasmparser::Imports::Compact2 { names, .. } => {
                     let count = names.count() as usize;
                     import_stats.has_compact2 = true;
-                    import_stats.compact2_entries += 1;
                     import_stats.has_multi_compact2 |= count >= 2;
                     (count, ImportKind::Compact2)
                 }
@@ -128,8 +118,6 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
                 }
             }
         }
-        import_stats.empty_import_sections += usize::from(section_entries == 0);
-        import_stats.section_entries += section_entries;
     }
     import_stats
 }

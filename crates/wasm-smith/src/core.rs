@@ -32,23 +32,6 @@ const PCT_INBOUNDS: f64 = 0.995; // bigger = less traps
 
 type Instruction = wasm_encoder::Instruction<'static>;
 
-/// Statistics about the import section emitted for a generated module.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct ImportStats {
-    /// The number of import-section entries.
-    pub section_entries: usize,
-    /// The number of ordinary, single-import entries.
-    pub single_entries: usize,
-    /// The number of Compact1 entries.
-    pub compact1_entries: usize,
-    /// The number of Compact2 entries.
-    pub compact2_entries: usize,
-    /// The number of logical imports represented by all entries.
-    pub logical_imports: usize,
-    /// The number of emitted import sections with no entries.
-    pub empty_import_sections: usize,
-}
-
 /// A pseudo-random WebAssembly module.
 ///
 /// Construct instances of this type (with default configuration) with [the
@@ -484,36 +467,6 @@ pub(crate) enum Offset {
 }
 
 impl Module {
-    /// Return statistics for the import entries that will be emitted.
-    pub fn import_stats(&self) -> ImportStats {
-        let mut stats = ImportStats {
-            empty_import_sections: usize::from(
-                self.should_encode_imports && self.imports.is_empty(),
-            ),
-            ..ImportStats::default()
-        };
-
-        for imports in &self.imports {
-            stats.section_entries += 1;
-            match imports {
-                Imports::Single(_) => {
-                    stats.single_entries += 1;
-                    stats.logical_imports += 1;
-                }
-                Imports::Compact1 { items, .. } => {
-                    stats.compact1_entries += 1;
-                    stats.logical_imports += items.len();
-                }
-                Imports::Compact2 { names, .. } => {
-                    stats.compact2_entries += 1;
-                    stats.logical_imports += names.len();
-                }
-            }
-        }
-
-        stats
-    }
-
     fn build(&mut self, u: &mut Unstructured) -> Result<()> {
         self.valtypes = configured_valtypes(&self.config);
 
