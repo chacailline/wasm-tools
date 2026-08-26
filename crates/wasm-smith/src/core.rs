@@ -615,8 +615,7 @@ impl Module {
             self.arbitrary_rec_group(u, AllowEmptyRecGroup::No)?;
         }
         while self.types.len() < self.config.max_types {
-            let keep_going = u.arbitrary().unwrap_or(false);
-            if !keep_going {
+            if u.arbitrary().unwrap_or(true) {
                 break;
             }
             self.arbitrary_rec_group(u, AllowEmptyRecGroup::Yes)?;
@@ -1575,8 +1574,7 @@ impl Module {
         let mut can_generate_entity = true;
         while can_generate_entity && self.num_imports < self.config.max_imports {
             let reached_min_imports = self.num_imports >= self.config.min_imports;
-            let should_continue = !reached_min_imports || u.arbitrary().unwrap_or(false);
-            if !should_continue {
+            if reached_min_imports && u.arbitrary().unwrap_or(true) {
                 break;
             }
 
@@ -1962,7 +1960,7 @@ impl Module {
                     let module = import.module.clone();
                     let mut items = vec![import];
                     while imports.peek().is_some_and(|import| import.module == module)
-                        && !u.arbitrary().unwrap_or(true)
+                        && u.arbitrary().unwrap_or(false)
                     {
                         items.push(imports.next().unwrap());
                     }
@@ -1974,7 +1972,7 @@ impl Module {
                     let mut names = vec![import.name];
                     while imports.peek().is_some_and(|import| {
                         import.module == module && import.entity_type == entity_type
-                    }) && !u.arbitrary().unwrap_or(true)
+                    }) && u.arbitrary().unwrap_or(false)
                     {
                         names.push(imports.next().unwrap().name);
                     }
