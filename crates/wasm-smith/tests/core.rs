@@ -70,7 +70,7 @@ struct ImportStats {
 }
 
 fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
-    enum ImportKind {
+    enum ImportsKind {
         Single,
         Compact1,
         Compact2,
@@ -90,31 +90,31 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
             let (count, kind) = match imports {
                 wasmparser::Imports::Single(_, _) => {
                     import_stats.has_single = true;
-                    (1, ImportKind::Single)
+                    (1, ImportsKind::Single)
                 }
                 wasmparser::Imports::Compact1 { items, .. } => {
                     let count = items.count() as usize;
                     import_stats.has_compact1 = true;
                     import_stats.has_multi_compact1 |= count >= 2;
-                    (count, ImportKind::Compact1)
+                    (count, ImportsKind::Compact1)
                 }
                 wasmparser::Imports::Compact2 { names, .. } => {
                     let count = names.count() as usize;
                     import_stats.has_compact2 = true;
                     import_stats.has_multi_compact2 |= count >= 2;
-                    (count, ImportKind::Compact2)
+                    (count, ImportsKind::Compact2)
                 }
             };
             import_stats.import_count += count;
             if import_stats.import_count == max_imports {
                 match kind {
-                    ImportKind::Compact1 => {
+                    ImportsKind::Compact1 => {
                         import_stats.compact1_reaches_import_limit = count >= 2;
                     }
-                    ImportKind::Compact2 => {
+                    ImportsKind::Compact2 => {
                         import_stats.compact2_reaches_import_limit = count >= 2;
                     }
-                    ImportKind::Single => {}
+                    ImportsKind::Single => {}
                 }
             }
         }

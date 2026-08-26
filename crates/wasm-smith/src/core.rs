@@ -382,7 +382,7 @@ pub(crate) enum Imports {
 }
 
 #[derive(Arbitrary)]
-enum ImportGroupKind {
+enum ImportsKind {
     Single,
     Compact1,
     Compact2,
@@ -1584,7 +1584,7 @@ impl Module {
             let module = limited_string(1_000, u)?;
 
             match import_kind {
-                ImportGroupKind::Single => {
+                ImportsKind::Single => {
                     let Some(entity_type) = self.arbitrary_import_entity(u)? else {
                         break;
                     };
@@ -1596,7 +1596,7 @@ impl Module {
                         entity_type,
                     }));
                 }
-                ImportGroupKind::Compact1 => {
+                ImportsKind::Compact1 => {
                     let mut items = Vec::new();
                     while self.num_imports < self.config.max_imports {
                         if u.arbitrary().unwrap_or(true) {
@@ -1621,7 +1621,7 @@ impl Module {
                         self.imports.push(Imports::Compact1 { module, items });
                     }
                 }
-                ImportGroupKind::Compact2 => {
+                ImportsKind::Compact2 => {
                     let Some(entity_type) = self.arbitrary_import_entity(u)? else {
                         break;
                     };
@@ -1664,11 +1664,11 @@ impl Module {
         }
     }
 
-    fn arbitrary_import_group_kind(&self, u: &mut Unstructured) -> Result<ImportGroupKind> {
+    fn arbitrary_import_group_kind(&self, u: &mut Unstructured) -> Result<ImportsKind> {
         if self.config.compact_imports_enabled {
             u.arbitrary()
         } else {
-            Ok(ImportGroupKind::Single)
+            Ok(ImportsKind::Single)
         }
     }
 
@@ -1681,8 +1681,8 @@ impl Module {
         let mut imports = imports.into_iter().peekable();
         while let Some(import) = imports.next() {
             match self.arbitrary_import_group_kind(u)? {
-                ImportGroupKind::Single => self.imports.push(Imports::Single(import)),
-                ImportGroupKind::Compact1 => {
+                ImportsKind::Single => self.imports.push(Imports::Single(import)),
+                ImportsKind::Compact1 => {
                     let module = import.module.clone();
                     let mut items = vec![import];
                     while imports.peek().is_some_and(|import| import.module == module)
@@ -1692,7 +1692,7 @@ impl Module {
                     }
                     self.imports.push(Imports::Compact1 { module, items });
                 }
-                ImportGroupKind::Compact2 => {
+                ImportsKind::Compact2 => {
                     let module = import.module.clone();
                     let entity_type = import.entity_type.clone();
                     let mut names = vec![import.name];
