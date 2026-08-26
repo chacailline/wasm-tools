@@ -1571,8 +1571,8 @@ impl Module {
         }
 
         let mut import_names = HashSet::new();
-        let mut can_generate_entity = true;
-        while can_generate_entity && self.num_imports < self.config.max_imports {
+        let mut entity_generation_failed = false;
+        while !entity_generation_failed && self.num_imports < self.config.max_imports {
             let reached_min_imports = self.num_imports >= self.config.min_imports;
             if reached_min_imports && u.arbitrary().unwrap_or(true) {
                 break;
@@ -1580,10 +1580,9 @@ impl Module {
 
             let import_kind = self.arbitrary_import_group_kind(u)?;
             let module = limited_string(1_000, u)?;
-
             match import_kind {
                 ImportsKind::Single => {
-                    let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                    let Some(entity_type) = self.arbitrary_import_entity_type(u)? else {
                         break;
                     };
                     let name = self.arbitrary_import_name(&module, &mut import_names, u)?;
@@ -1601,10 +1600,10 @@ impl Module {
                             break;
                         }
 
-                        let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                        let Some(entity_type) = self.arbitrary_import_entity_type(u)? else {
                             // No entity kind is available, or generated entity hits config.max_type_size.
                             // We push the in-progress import entry, and stop generating imports.
-                            can_generate_entity = false;
+                            entity_generation_failed = true;
                             break;
                         };
                         let name = self.arbitrary_import_name(&module, &mut import_names, u)?;
@@ -1620,7 +1619,7 @@ impl Module {
                     }
                 }
                 ImportsKind::Compact2 => {
-                    let Some(entity_type) = self.arbitrary_import_entity(u)? else {
+                    let Some(entity_type) = self.arbitrary_import_entity_type(u)? else {
                         break;
                     };
 
@@ -1635,7 +1634,7 @@ impl Module {
                         if import_type_size > remaining_type_size
                             || !self.can_push_entity_type(&entity_type)
                         {
-                            can_generate_entity = false;
+                            entity_generation_failed = true;
                             break;
                         }
 
@@ -1670,7 +1669,15 @@ impl Module {
         }
     }
 
-    fn arbitrary_import_entity(&mut self, u: &mut Unstructured) -> Result<Option<EntityType>> {
+    /// Generate an entity type for an import.
+    ///
+    /// Returns `Ok(None)` if no supported entity kind can currently be added,
+    /// or if the generated entity would exceed the remaining type-size budget.
+    ///
+    /// Returns an error if the input does not contain enough valid data to
+    /// generate the entity.
+    fn arbitrary_import_entity_type(&mut self, u: &mut Unstructured) -> Result<Option<EntityType>> {
+        // Make a list of all currently-allowed entities, and choose one arbitrarily.
         type GenerateEntity = fn(&mut Unstructured, &mut Module) -> Result<EntityType>;
 
         let mut choices: Vec<GenerateEntity> = Vec::new();
@@ -1705,6 +1712,8 @@ impl Module {
         }
         let generate = *u.choose(&choices)?;
         let entity_type = generate(u, self)?;
+
+        // Check that we have space for the type size of the chosen entity.
         let remaining_type_size = self.config.max_type_size - self.type_size;
         let import_type_size = entity_type.size() + 1;
         Ok((import_type_size <= remaining_type_size).then_some(entity_type))
