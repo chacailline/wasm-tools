@@ -878,6 +878,7 @@ impl<'a> Arbitrary<'a> for Config {
             extended_const_enabled: u.arbitrary()?,
             const_expr_fuel: u.int_in_range(0..=100)?,
             limit_arrays_in_const_exprs: u.arbitrary()?,
+            wide_arithmetic_enabled: u.arbitrary()?,
 
             // These fields, unlike the ones above, are less useful to set.
             // They either make weird inputs or are for features not widely
@@ -911,7 +912,6 @@ impl<'a> Arbitrary<'a> for Config {
 
             // Proposals that are not stage4+ are disabled by default.
             custom_page_sizes_enabled: false,
-            wide_arithmetic_enabled: false,
             shared_everything_threads_enabled: false,
             custom_descriptors_enabled: false,
         };
