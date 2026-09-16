@@ -167,6 +167,15 @@ impl<'a> Parse<'a> for Imports<'a> {
     fn parse(parser: Parser<'a>) -> Result<Self> {
         let span = parser.parse::<kw::import>()?.0;
         let module = parser.parse()?;
+        if parser.is_empty() {
+            return Ok(Imports {
+                span,
+                items: ImportItems::Group1 {
+                    module,
+                    items: Vec::new(),
+                },
+            });
+        }
         if parser.peek::<LParen>()? {
             let mut encoding = CompactImportEncoding::Unknown;
             let mut items = Vec::new();
@@ -202,22 +211,7 @@ impl<'a> Parse<'a> for Imports<'a> {
             }
 
             match encoding {
-                CompactImportEncoding::Unknown => Err(parser.error("expected import items")),
-                CompactImportEncoding::Encoding1 => Ok(Imports {
-                    span,
-                    items: ImportItems::Group1 {
-                        module,
-                        items: items
-                            .into_iter()
-                            .map(|item| ImportGroup1Item {
-                                span: item.span,
-                                name: item.name,
-                                sig: item.sig.unwrap(),
-                            })
-                            .collect(),
-                    },
-                }),
-                CompactImportEncoding::Encoding2 => {
+                CompactImportEncoding::Unknown | CompactImportEncoding::Encoding2 => {
                     let sig: ItemSig = parser.parens(|p| p.parse())?;
                     if let Some(id) = sig.id {
                         return Err(parser.error_at(id.span(), "identifier not allowed"));
@@ -237,6 +231,20 @@ impl<'a> Parse<'a> for Imports<'a> {
                         },
                     })
                 }
+                CompactImportEncoding::Encoding1 => Ok(Imports {
+                    span,
+                    items: ImportItems::Group1 {
+                        module,
+                        items: items
+                            .into_iter()
+                            .map(|item| ImportGroup1Item {
+                                span: item.span,
+                                name: item.name,
+                                sig: item.sig.unwrap(),
+                            })
+                            .collect(),
+                    },
+                }),
             }
         } else {
             // Single item

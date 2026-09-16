@@ -41,3 +41,12 @@
 )
 (assert_return (invoke "testFuncs") (i32.const 579))
 (assert_return (invoke "testGlobals") (i32.const 4321))
+
+;; Empty groups still implicitly declare a type, but don't import anything.
+(module
+  (import "unused")
+  (import "unused" (func (param i32) (result i32)))
+  (func (type 0)
+    local.get 0)
+  (export "identity" (func 0))
+)

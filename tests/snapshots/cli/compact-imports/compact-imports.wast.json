@@ -47,6 +47,12 @@
           "value": "4321"
         }
       ]
+    },
+    {
+      "type": "module",
+      "line": 46,
+      "filename": "compact-imports.2.wasm",
+      "module_type": "binary"
     }
   ]
 }

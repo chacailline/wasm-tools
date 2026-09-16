@@ -2,7 +2,10 @@
 
 use arbitrary::Unstructured;
 use rand::{Rng, SeedableRng, rngs::SmallRng};
-use wasm_encoder::{ImportCompact, ImportSection, Imports, MemoryType};
+use wasm_encoder::{
+    CompositeInnerType, CompositeType, FuncType, ImportCompact, ImportSection, Imports, MemoryType,
+    SubType, TypeSection,
+};
 use wasm_smith::{Config, Module};
 use wasmparser::{Parser, Validator, WasmFeatures, types::EntityType};
 
@@ -72,6 +75,72 @@ fn import_group_sizes(wasm: &[u8]) -> Vec<(u8, usize)> {
         }
     }
     Vec::new()
+}
+
+fn has_import_section(wasm: &[u8]) -> bool {
+    Parser::new(0)
+        .parse_all(wasm)
+        .any(|payload| matches!(payload.unwrap(), wasmparser::Payload::ImportSection(_)))
+}
+
+fn typed_empty_group_module_shape() -> Vec<u8> {
+    let mut types = TypeSection::new();
+    types.ty().subtype(&SubType {
+        is_final: true,
+        supertype_idx: None,
+        composite_type: CompositeType {
+            inner: CompositeInnerType::Func(FuncType::new([], [])),
+            shared: false,
+            descriptor: None,
+            describes: None,
+        },
+    });
+
+    let mut imports = ImportSection::new();
+    imports.imports(Imports::Compact1 {
+        module: "empty-compact1",
+        items: Vec::new().into(),
+    });
+    imports.imports(Imports::Compact2 {
+        module: "empty-compact2",
+        ty: wasm_encoder::EntityType::Function(0),
+        names: Vec::new().into(),
+    });
+
+    let mut module = wasm_encoder::Module::new();
+    module.section(&types).section(&imports);
+    module.finish()
+}
+
+#[test]
+fn module_shape_drops_empty_groups_but_retains_type() {
+    let module_shape = typed_empty_group_module_shape();
+    assert_eq!(import_group_sizes(&module_shape), vec![(1, 0), (2, 0)]);
+    assert!(has_import_section(&module_shape));
+    let mut config = Config::default();
+    config.module_shape = Some(module_shape);
+    config.compact_imports_enabled = true;
+    config.gc_enabled = false;
+    let mut u = Unstructured::new(&[0; 512]);
+
+    let module = Module::new(config.clone(), &mut u).unwrap();
+    let generated = module.to_bytes();
+    let mut shared_types = Vec::new();
+    for payload in Parser::new(0).parse_all(&generated) {
+        if let wasmparser::Payload::TypeSection(types) = payload.unwrap() {
+            for rec_group in types {
+                for ty in rec_group.unwrap().into_types() {
+                    shared_types.push(ty.composite_type.shared);
+                }
+            }
+        }
+    }
+
+    let mut validator = Validator::new_with_features(config.features());
+    validate(&mut validator, &generated);
+    assert!(!has_import_section(&generated));
+    assert!(import_group_sizes(&generated).is_empty());
+    assert_eq!(shared_types, vec![false]);
 }
 
 #[test]
