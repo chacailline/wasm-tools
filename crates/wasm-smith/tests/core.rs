@@ -71,6 +71,8 @@ struct ImportStats {
     has_compact2: bool,
     has_multi_compact1: bool,
     has_multi_compact2: bool,
+    has_empty_compact1: bool,
+    has_empty_compact2: bool,
     compact1_reaches_import_limit: bool,
     compact2_reaches_import_limit: bool,
 }
@@ -102,12 +104,14 @@ fn inspect_imports(bytes: &[u8], max_imports: usize) -> ImportStats {
                     let count = items.count() as usize;
                     import_stats.has_compact1 = true;
                     import_stats.has_multi_compact1 |= count >= 2;
+                    import_stats.has_empty_compact1 |= count == 0;
                     (count, ImportsKind::Compact1)
                 }
                 wasmparser::Imports::Compact2 { names, .. } => {
                     let count = names.count() as usize;
                     import_stats.has_compact2 = true;
                     import_stats.has_multi_compact2 |= count >= 2;
+                    import_stats.has_empty_compact2 |= count == 0;
                     (count, ImportsKind::Compact2)
                 }
             };
@@ -182,7 +186,7 @@ fn compact_imports_enabled() {
         let mut u = Unstructured::new(&buf);
         if let Ok(module) = Module::new(config.clone(), &mut u) {
             let groups = inspect_imports(&module.to_bytes(), config.max_imports);
-            assert!(groups.import_count <= config.max_imports);
+            assert!((config.min_imports..=config.max_imports).contains(&groups.import_count));
             compact1_seen |= groups.has_multi_compact1;
             compact2_seen |= groups.has_multi_compact2;
             compact1_reaches_import_limit |= groups.compact1_reaches_import_limit;
@@ -194,6 +198,47 @@ fn compact_imports_enabled() {
     assert!(compact2_seen);
     assert!(compact1_reaches_import_limit);
     assert!(compact2_reaches_import_limit);
+}
+
+#[test]
+fn compact_imports_with_unmet_minimum_and_empty_input_terminate() {
+    let mut config = Config::default();
+    config.min_imports = 1;
+    config.max_imports = 4;
+    let mut u = Unstructured::new(&[]);
+    let module = Module::new(config.clone(), &mut u).unwrap();
+    let groups = inspect_imports(&module.to_bytes(), config.max_imports);
+    assert!((config.min_imports..=config.max_imports).contains(&groups.import_count));
+}
+
+#[test]
+fn compact_imports_can_be_empty() {
+    let mut rng = SmallRng::seed_from_u64(42);
+    let mut buf = vec![0; 2048];
+    let mut empty_compact1_seen = false;
+    let mut empty_compact2_seen = false;
+    let mut config = Config::default();
+    config.min_imports = 0;
+    config.max_imports = 4;
+    config.max_funcs = 100;
+    config.max_globals = 100;
+    config.max_tables = 100;
+    config.max_memories = 100;
+    config.max_tags = 100;
+
+    for _ in 0..1024 {
+        rng.fill_bytes(&mut buf);
+        let mut u = Unstructured::new(&buf);
+        if let Ok(module) = Module::new(config.clone(), &mut u) {
+            let groups = inspect_imports(&module.to_bytes(), config.max_imports);
+            assert!(groups.import_count <= config.max_imports);
+            empty_compact1_seen |= groups.has_empty_compact1;
+            empty_compact2_seen |= groups.has_empty_compact2;
+        }
+    }
+
+    assert!(empty_compact1_seen);
+    assert!(empty_compact2_seen);
 }
 
 #[test]

@@ -1,5 +1,7 @@
 //! Generating arbitrary core Wasm modules.
 
+// pattern: Mixed (needs refactoring)
+
 mod code_builder;
 pub(crate) mod encode;
 mod terminate;
@@ -1600,7 +1602,8 @@ impl Module {
                 ImportsKind::Compact1 => {
                     let mut items = Vec::new();
                     while self.num_imports < self.config.max_imports {
-                        let keep_going = u.arbitrary().unwrap_or(false);
+                        let keep_going = !reached_min_imports && items.is_empty()
+                            || u.arbitrary().unwrap_or(false);
                         if !keep_going {
                             break;
                         }
@@ -1619,9 +1622,7 @@ impl Module {
                             entity_type,
                         });
                     }
-                    if !items.is_empty() {
-                        self.imports.push(Imports::Compact1 { module, items });
-                    }
+                    self.imports.push(Imports::Compact1 { module, items });
                 }
                 ImportsKind::Compact2 => {
                     let Some(entity_type) = self.arbitrary_import_entity_type(u)? else {
@@ -1630,7 +1631,8 @@ impl Module {
 
                     let mut names = Vec::new();
                     while self.num_imports < self.config.max_imports {
-                        let keep_going = u.arbitrary().unwrap_or(false);
+                        let keep_going = !reached_min_imports && names.is_empty()
+                            || u.arbitrary().unwrap_or(false);
                         if !keep_going {
                             break;
                         }
@@ -1649,13 +1651,11 @@ impl Module {
                         names.push(name);
                     }
 
-                    if !names.is_empty() {
-                        self.imports.push(Imports::Compact2 {
-                            module,
-                            entity_type,
-                            names,
-                        });
-                    }
+                    self.imports.push(Imports::Compact2 {
+                        module,
+                        entity_type,
+                        names,
+                    });
                 }
             }
         }
